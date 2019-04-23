@@ -37,9 +37,18 @@ import (
 // information may already be locally available. Frequently though, information
 // will be fetched over the network, so this function may be slow.
 func UpdateRepo(rc *RemoteCache, importPath string) (Repo, error) {
+	p := strings.SplitN(importPath, "@sha256:", 2)
+	importPath = p[0]
 	root, name, err := rc.Root(importPath)
 	if err != nil {
 		return Repo{}, err
+	}
+	if len(p) == 2 {
+		return Repo{
+			Name:     name,
+			GoPrefix: root,
+			Commit:   p[1],
+		}, nil
 	}
 	remote, vcs, err := rc.Remote(root)
 	if err != nil {

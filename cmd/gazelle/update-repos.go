@@ -35,6 +35,7 @@ type updateReposConfig struct {
 	fn           updateReposFn
 	lockFilename string
 	importPaths  []string
+	goproxy      string
 }
 
 const updateReposName = "_update-repos"
@@ -49,6 +50,7 @@ func (_ *updateReposConfigurer) RegisterFlags(fs *flag.FlagSet, cmd string, c *c
 	uc := &updateReposConfig{}
 	c.Exts[updateReposName] = uc
 	fs.StringVar(&uc.lockFilename, "from_file", "", "Gazelle will translate repositories listed in this file into repository rules in WORKSPACE. Currently only dep's Gopkg.lock is supported.")
+	fs.StringVar(&uc.goproxy, "goproxy", "http://goproxy.i.brainpp.cn", "Gazelle will fetch check latest commit version from goproxy and add gen goproxy's zip address.")
 }
 
 func (_ *updateReposConfigurer) CheckFlags(fs *flag.FlagSet, c *config.Config) error {
@@ -174,6 +176,7 @@ func updateImportPaths(c *updateReposConfig, f *rule.File, kinds map[string]rule
 			}
 			r.Remote = "" // don't set these explicitly
 			r.VCS = ""
+			r.Goproxy = c.goproxy
 			rule := repo.GenerateRule(r)
 			genRules[i] = rule
 		}(i, imp)

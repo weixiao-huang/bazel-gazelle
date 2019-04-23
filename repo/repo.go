@@ -16,11 +16,16 @@ limitations under the License.
 package repo
 
 import (
+	"encoding/json"
+	"errors"
 	"fmt"
+	"net/http"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/bazelbuild/bazel-gazelle/rule"
 )
@@ -48,6 +53,8 @@ type Repo struct {
 	// VCS is the version control system used to check out the repository.
 	// May also be "http" for HTTP archives.
 	VCS string
+
+	Goproxy string
 }
 
 type byName []Repo
@@ -103,17 +110,67 @@ func getLockFileFormat(filename string) lockFileFormat {
 	}
 }
 
+type Version struct {
+	Version string `json:"Version"`
+	Time    string `json:"Time"`
+}
+
+func GetRepoVersion(host, importpath, commit string) (*Version, error) {
+	url := importpath
+	if commit == "" {
+		url = path.Join(url, "@latest")
+	} else {
+		url = path.Join(url, "@v", commit+".sha256")
+	}
+	client := http.Client{
+		Timeout: 10 * time.Second,
+	}
+	url = host + "/" + url
+	resp, err := client.Get(url)
+	if err != nil {
+		return nil, err
+	}
+
+	if resp.Body == nil {
+		return nil, errors.New("has no content")
+	}
+
+	var version Version
+	if err := json.NewDecoder(resp.Body).Decode(&version); err != nil {
+		return nil, err
+	}
+	return &version, nil
+}
+
 // GenerateRule returns a repository rule for the given repository that can
 // be written in a WORKSPACE file.
 func GenerateRule(repo Repo) *rule.Rule {
+	host := repo.Goproxy
 	r := rule.NewRule("go_repository", repo.Name)
+	r.SetAttr("importpath", repo.GoPrefix)
+
+	if host != "" {
+		version, err := GetRepoVersion(host, repo.GoPrefix, repo.Commit)
+		if err != nil {
+			fmt.Printf("error get repo version from %s {importpath: %s, commit: %s}: %v", host, repo.GoPrefix, repo.Commit, err)
+		} else {
+			zip := "/" + path.Join(repo.GoPrefix, "@v", version.Version+".zip")
+			r.SetAttr("urls", []string{
+				host + zip,
+				"https://goproxy.io" + zip,
+			})
+			r.SetAttr("strip_prefix", fmt.Sprintf("%s@%s", repo.GoPrefix, version.Version))
+			r.SetAttr("type", "zip")
+			return r
+		}
+	}
+
 	if repo.Commit != "" {
 		r.SetAttr("commit", repo.Commit)
 	}
 	if repo.Tag != "" {
 		r.SetAttr("tag", repo.Tag)
 	}
-	r.SetAttr("importpath", repo.GoPrefix)
 	if repo.Remote != "" {
 		r.SetAttr("remote", repo.Remote)
 	}
